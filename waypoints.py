@@ -1,13 +1,28 @@
 import numpy as np
 from metadrive.component.road_network import Road
 
-def get_waypoints(agent, delta_s=10):
+def get_next_relative_waypoints(agent, n=15):
+    waypoints = get_waypoints(agent, delta_s=10, n=n)
+    transformed_waypoints = []
+    for wp in waypoints:
+        x_rel, y_rel = global_to_agent(agent.position[0], agent.position[1], agent.heading_theta, wp[0], wp[1])
+        transformed_waypoints.append((x_rel, y_rel, 0.5))
+    
+    return transformed_waypoints
+
+def get_waypoints(agent, delta_s=10, n = 15): # CHANGE THIS TO START AT AGENT CURRENT POSITION
     roads = []
     navigation = agent.navigation
     checkpoints = navigation.checkpoints
 
-    # Get the roads from start to goal
-    for i in range(len(checkpoints)-1):
+    # Get the roads from agent current position to goal
+    start_index = 0
+    while checkpoints[start_index] != navigation.current_road.start_node:
+        start_index += 1
+        if start_index >= len(checkpoints):
+            break
+
+    for i in range(start_index, len(checkpoints)-1):
         road = Road(checkpoints[i], checkpoints[i+1])
         roads.append(road)
 
@@ -49,7 +64,34 @@ def get_waypoints(agent, delta_s=10):
 
         dist_since_last = rem - n_more * delta_s
 
-    return waypoints
+        if len(waypoints) >= n:
+            break
 
-def get_next_relative_waypoints(agent, n=15):
-    pass
+    return waypoints[:15]
+
+
+import math
+
+def global_to_agent(agent_x, agent_y, agent_theta, point_x, point_y):
+    """
+    Transforms a point from global coordinates into the agent's local frame.
+
+    Parameters:
+    - agent_x, agent_y: float. Agent's position in global frame.
+    - agent_theta: float. Agent's yaw in radians (0 along global +X, positive CCW).
+    - point_x, point_y: float. Point's position in global frame.
+
+    Returns:
+    - (x_rel, y_rel): tuple of floats. Point's coordinates in the agent's frame.
+      x_rel is the forward distance, y_rel is the lateral (left-right) distance
+      relative to where the agent is facing.
+    """
+    # Translate so agent is at origin
+    dx = point_x - agent_x
+    dy = point_y - agent_y
+
+    # Rotate by -agent_theta
+    x_rel =  dx * math.cos(agent_theta) + dy * math.sin(agent_theta)
+    y_rel = -dx * math.sin(agent_theta) + dy * math.cos(agent_theta)
+
+    return x_rel, y_rel

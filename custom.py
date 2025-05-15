@@ -25,12 +25,13 @@ class EgoState(BaseSensor):
     """
     def __init__(self, agent_name, engine, cuda=False):
         self.engine = engine
-        self.agent = self.engine.agents[agent_name]
+        self.agent_name = agent_name
 
     def perceive(self):
-        steer = self.agent.steering
-        throttle = self.agent.throttle_break
-        speed = self.agent.speed_km_h
+        agent = self.engine.agents[self.agent_name]
+        steer = agent.steering
+        throttle = agent.throttle_brake
+        speed = agent.speed_km_h
         return steer, throttle, speed
     
 class WaypointSensor(BaseSensor):
@@ -40,10 +41,11 @@ class WaypointSensor(BaseSensor):
     def __init__(self, agent_name, n, engine, cuda=False):
         self.n = n
         self.engine = engine
-        self.agent = self.engine.agents[agent_name]
+        self.agent_name = agent_name
 
     def perceive(self):
-        return get_next_relative_waypoints(self.agent, n=15)
+        agent = self.engine.agents[self.agent_name]
+        return get_next_relative_waypoints(agent, n=15)
 
 """
 Observations
@@ -53,6 +55,7 @@ from metadrive.obs.observation_base import BaseObservation
 from gym.spaces import Box
 import gym
 import numpy as np
+from agent_utils import *
 
 class AgentObservation(BaseObservation):
     def __init__(self, config):
@@ -64,15 +67,11 @@ class AgentObservation(BaseObservation):
     @property
     def observation_space(self):
         seg_stack = self.seg_obs.observation_space
-        seg_obs_space = Box(low=seg_stack.low.min(), high=seg_stack.high.max(), shape=np.squeeze(seg_stack.shape), dtype=seg_stack.dtype)
-        waypoint_sensor = self.engine.get_sensor("waypoint")
-
         os = dict( # segsem, steer, throttle, speed, relative position of waypoints
-            seg=seg_obs_space,
+            seg=Box(0, 1, shape=(get_num_classes(), *seg_stack.shape[-2:]), dtype=np.uint8),
             steer=Box(low=-40, high=40, shape=(1,), dtype=np.float32),
             throttle=Box(low=-1, high=1, shape=(1,), dtype=np.float32),
             speed=Box(low=-80, high=80, shape=(1,), dtype=np.float32),
-            waypoints=Box(low=-50, high=50, shape=(waypoint_sensor.n, 2), dtype=np.float32),
         )
         return gym.spaces.Dict(os)
 
@@ -89,6 +88,7 @@ class AgentObservation(BaseObservation):
         assert seg_img.dtype == np.uint8
         seg_img = seg_img[..., 0]
         seg_img = seg_img[..., ::-1]  # BGR -> RGB
+        seg_img = one_hot_encode_semantic_map(seg_img)
         ret["seg"] = seg_img
 
         ego = self.engine.get_sensor("ego")
@@ -97,7 +97,5 @@ class AgentObservation(BaseObservation):
         ret["steer"] = np.array([steer], dtype=np.float32)
         ret["throttle"] = np.array([throttle], dtype=np.float32)
         ret["speed"] = np.array([speed], dtype=np.float32)
-
-        ret["waypoints"] = np.array(self.engine.get_sensor("waypoint").perceive(), dtype=np.float32)
 
         return ret
