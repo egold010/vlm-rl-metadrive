@@ -67,16 +67,20 @@ class AgentObservation(BaseObservation):
     @property
     def observation_space(self):
         seg_stack = self.seg_obs.observation_space
-        os = dict( # segsem, steer, throttle, speed, relative position of waypoints
-            seg=Box(0, 1, shape=(get_num_classes(), *seg_stack.shape[-2:]), dtype=np.uint8),
-            steer=Box(low=-40, high=40, shape=(1,), dtype=np.float32),
-            throttle=Box(low=-1, high=1, shape=(1,), dtype=np.float32),
-            speed=Box(low=-80, high=80, shape=(1,), dtype=np.float32),
-        )
+        os = {}
+
+        low, high = [], []
+        low.append(-1), high.append(1) # steer
+        low.append(-1), high.append(1) # throttle
+        low.append(-80), high.append(80) # speed
+        os['vehicle_measures'] = gym.spaces.Box(low=np.array(low), high=np.array(high), dtype=np.float32)
+        os['waypoints'] = gym.spaces.Box(low=-50, high=50, shape=(15, 2), dtype=np.float32)
+        os["seg_camera"] = gym.spaces.Box(0, 1, shape=(get_num_classes(), *seg_stack.shape[-2:]), dtype=np.uint8),
+
         return gym.spaces.Dict(os)
 
     def observe(self, vehicle):
-        ret = {}
+        os = {}
 
         seg_cam = self.engine.get_sensor("seg_camera").cam
         agent = seg_cam.getParent()
@@ -88,14 +92,20 @@ class AgentObservation(BaseObservation):
         assert seg_img.dtype == np.uint8
         seg_img = seg_img[..., 0]
         seg_img = seg_img[..., ::-1]  # BGR -> RGB
-        seg_img = one_hot_encode_semantic_map(seg_img)
-        ret["seg"] = seg_img
+        seg_img = one_hot_encode_semantic_map(seg_img).astype(np.float32)
+        os["seg_camera"] = seg_img
 
         ego = self.engine.get_sensor("ego")
         steer, throttle, speed = ego.perceive()
 
-        ret["steer"] = np.array([steer], dtype=np.float32)
-        ret["throttle"] = np.array([throttle], dtype=np.float32)
-        ret["speed"] = np.array([speed], dtype=np.float32)
+        vehicle_measures = []
+        vehicle_measures.append(steer)
+        vehicle_measures.append(throttle)
+        vehicle_measures.append(speed)
+        os["vehicle_measures"] = vehicle_measures
 
-        return ret
+        waypoint_sensor = self.engine.get_sensor("waypoint")
+        waypoints = waypoint_sensor.perceive()
+        os["waypoints"] = np.array(waypoints, dtype=np.float32)
+
+        return os
